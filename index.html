@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f2f2f7">
+<title>数独</title>
+<meta name="apple-mobile-web-app-title" content="数独">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-512.png">
+<style>
+/* 配色は参照アプリの Theme.swift を CSS 変数に写したもの（ライト / ダーク両対応） */
+:root{
+  --page:#f2f2f7; --boardBg:#ffffff; --fg:#000; --fg2:rgba(60,60,67,.6);
+  --accent:#007aff; --accentRGB:0,122,255; --fgRGB:0,0,0;
+  --blockLine:rgba(var(--fgRGB),.55); --cellLine:rgba(var(--fgRGB),.16);
+  --selection:rgba(var(--accentRGB),.28); --relatedUnit:rgba(var(--fgRGB),.06); --sameValue:rgba(var(--accentRGB),.13);
+  --hintUnit:rgba(255,149,0,.16); --hintCell:rgba(255,149,0,.38); --mistake:rgba(255,59,48,.30);
+  --givenText:var(--fg); --enteredText:var(--accent); --markText:var(--fg2); --conflictText:#ff3b30; --hintText:#248a3d;
+  --fill:rgba(118,118,128,.12); --bar:rgba(249,249,249,.94);
+}
+@media (prefers-color-scheme:dark){:root{
+  --page:#000; --boardBg:#1c1c1e; --fg:#fff; --fg2:rgba(235,235,245,.6);
+  --accent:#0a84ff; --accentRGB:10,132,255; --fgRGB:255,255,255;
+  --conflictText:#ff453a; --hintText:#30d158; --fill:rgba(118,118,128,.24); --bar:rgba(22,22,24,.94);
+}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN",system-ui,sans-serif;background:var(--page);color:var(--fg);
+  display:flex;flex-direction:column;align-items:center;touch-action:manipulation;-webkit-user-select:none;user-select:none;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+button,select{font:inherit;color:inherit}
+#app{width:100%;max-width:560px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 10px 14px}
+.top{width:100%;display:flex;align-items:center;gap:8px;padding:10px 4px 2px}
+.top h1{font-size:19px;margin:0;font-weight:700}
+.top select{font-size:15px;padding:5px 8px;border-radius:8px;border:none;background:var(--fill)}
+.top .sp{flex:1}
+#timer{font:600 17px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg2);font-variant-numeric:tabular-nums}
+.icon{border:none;background:var(--fill);border-radius:50%;width:34px;height:34px;font-size:18px;cursor:pointer;line-height:1}
+/* 盤面: 常に正方形。幅と高さの小さい方に合わせる */
+#board{--side:min(calc(100vw - 20px),540px,calc(100vh - 300px));--side:min(calc(100vw - 20px),540px,max(260px,calc(100dvh - 300px)));
+  width:var(--side);height:var(--side);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));gap:2px;background:var(--blockLine);
+  border:2px solid var(--blockLine);border-radius:6px;overflow:hidden}
+.box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));min-width:0;min-height:0;gap:1px;background:var(--cellLine)}
+.c{position:relative;min-width:0;min-height:0;background:var(--boardBg);display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden}
+.c::before{content:"";position:absolute;inset:0;background:var(--bgl,transparent);pointer-events:none}
+.c .v{position:relative;font-size:calc(var(--side)/9*.6);line-height:1;font-family:ui-rounded,-apple-system,system-ui,sans-serif;color:var(--enteredText)}
+.c.given .v{color:var(--givenText);font-weight:600}
+.c.hint .v{color:var(--hintText)}
+.c.conflict .v{color:var(--conflictText)}
+.c .m{position:relative;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);width:100%;height:100%}
+.c .m span{display:flex;align-items:center;justify-content:center;font-size:calc(var(--side)/9*.24);line-height:1;color:var(--markText);font-family:ui-rounded,-apple-system,system-ui,sans-serif}
+.c .m span.hl{color:var(--accent);font-weight:700}
+.c.l-related{--bgl:var(--relatedUnit)} .c.l-same{--bgl:var(--sameValue)} .c.l-sel{--bgl:var(--selection)}
+.c.l-mistake{--bgl:var(--mistake)} .c.l-hunit{--bgl:var(--hintUnit)} .c.l-hcell{--bgl:var(--hintCell)}
+/* 数字パッド: 各数字の下に残り個数 */
+#pad{width:var(--side);max-width:100%;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:5px}
+#pad button{border:none;background:var(--fill);border-radius:10px;height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;padding:0}
+#pad button b{font:500 27px ui-rounded,-apple-system,system-ui,sans-serif;line-height:1.05}
+#pad button small{font-size:11px;color:var(--fg2);min-height:13px}
+#pad button:disabled{opacity:.35;cursor:default}
+body.memo #pad button b{font-size:19px;color:var(--fg2)}
+body.memo #pad{outline:2px dashed rgba(var(--accentRGB),.5);outline-offset:3px;border-radius:10px}
+.acts{width:var(--side);max-width:100%;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.acts button,.subs button{border:1.5px solid transparent;background:var(--fill);border-radius:999px;height:42px;font-size:14px;cursor:pointer;white-space:nowrap;padding:0 4px;display:flex;align-items:center;justify-content:center;gap:2px}
+.acts button{flex-direction:column;border-radius:12px;height:52px;font-size:12px;gap:1px;line-height:1.1}.acts button i{font-style:normal;font-size:17px}
+.acts button:disabled{opacity:.4;cursor:default}
+.acts button.on{background:rgba(var(--accentRGB),.25);border-color:var(--accent);color:var(--accent);font-weight:600}
+.subs{width:var(--side);max-width:100%;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.subs button{height:36px;font-size:13px;padding:0 12px}
+.subs label{display:flex;align-items:center;gap:6px;font-size:13px;background:var(--fill);border-radius:999px;height:36px;padding:0 12px;cursor:pointer}
+.subs input{width:18px;height:18px;accent-color:var(--accent)}
+.keys{width:var(--side);max-width:100%;font-size:11px;color:var(--fg2);text-align:center}
+#banner{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);opacity:0;transition:.25s;
+  background:var(--bar);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 2px 10px rgba(0,0,0,.2);padding:10px 16px;border-radius:20px;font-size:14px;max-width:92vw;text-align:center;pointer-events:none;z-index:5}
+#banner.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#done{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:10}
+#done.show{display:flex}
+#done .card{background:var(--boardBg);border-radius:16px;padding:22px 20px;width:min(86vw,320px);text-align:center}
+#done h2{margin:0 0 8px;font-size:22px}
+#done p{margin:0 0 16px;color:var(--fg2)}
+#done button{display:block;width:100%;margin-top:8px;border:none;border-radius:12px;height:44px;font-size:16px;cursor:pointer;background:var(--fill)}
+#done button.pri{background:var(--accent);color:#fff;font-weight:600}
+#overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.15);z-index:8;font-size:15px}
+#overlay.show{display:flex}
+@media (min-width:900px) and (orientation:landscape){
+  /* 横長画面ではパッドを盤面の右へ（参照アプリの regular レイアウト） */
+  #app{max-width:900px;display:grid;grid-template-columns:auto 240px;grid-template-areas:"top top" "board side";column-gap:20px;align-items:start}
+  .top{grid-area:top} #board{grid-area:board;--side:min(640px,calc(100vh - 90px))} #side{grid-area:side;display:flex;flex-direction:column;gap:10px}
+  #pad,.acts,.subs,.keys{width:240px} #pad{grid-template-columns:repeat(3,1fr)} #pad button{height:64px}
+  .acts{grid-template-columns:1fr 1fr}
+}
+</style></head><body>
+<div id="app">
+  <div class="top">
+    <h1>数独</h1>
+    <select id="diff" aria-label="難易度"><option value="easy">かんたん</option><option value="medium" selected>ふつう</option><option value="hard">むずかしい</option></select>
+    <span class="sp"></span>
+    <span id="timer" aria-label="経過時間">0:00</span>
+  </div>
+  <div id="board" role="grid" aria-label="盤面"></div>
+  <div id="side">
+    <div id="pad"></div>
+    <div class="acts">
+      <button id="memo" aria-pressed="false" title="メモ (N)"><i>✏️</i><span>メモ <span id="memoState">OFF</span></span></button>
+      <button id="erase" title="消す (Delete)"><i>⌫</i>消す</button>
+      <button id="undo" title="戻す (Z)"><i>↩︎</i>戻す</button>
+      <button id="hint" title="ヒント (H)"><i>💡</i>ヒント</button>
+      <button id="check" title="答え合わせ (C)"><i>✓</i>チェック</button>
+    </div>
+    <div class="subs">
+      <button id="new">新しい問題</button>
+      <button id="fillAll" title="空きマスに正しい候補を書き込む">候補を自動入力</button>
+      <button id="restart">やり直す</button>
+      <label><input type="checkbox" id="autoClear" checked>メモを自動で消す</label>
+    </div>
+    <div class="keys">キーボード: 1–9 入力 / 0・Delete 消す / 矢印 移動 / N メモ切替 / Z 戻す / H ヒント / C チェック</div>
+  </div>
+</div>
+<div id="banner" role="status" aria-live="polite"></div>
+<div id="done" role="dialog" aria-modal="true"><div class="card"><h2>🎉 完成しました！</h2><p id="doneMsg"></p>
+  <button class="pri" id="again">同じ難易度でもう1問</button><button id="closeDone">閉じる</button></div></div>
+<div id="overlay"><div style="background:var(--boardBg);padding:14px 20px;border-radius:12px">問題を作っています…</div></div>
+<script>
+/*ENGINE-START*/
+// ---- 盤面の索引（参照: SudokuKit Units） ----
+const ROW=i=>i/9|0, COL=i=>i%9, BOX=i=>((i/27|0)*3)+((i%9)/3|0);
+const UNITS=[];
+for(let r=0;r<9;r++)UNITS.push([...Array(9)].map((_,c)=>r*9+c));
+for(let c=0;c<9;c++)UNITS.push([...Array(9)].map((_,r)=>r*9+c));
+for(let b=0;b<9;b++){const r0=(b/3|0)*3,c0=(b%3)*3,u=[];for(let d=0;d<9;d++)u.push((r0+(d/3|0))*9+c0+d%3);UNITS.push(u)}
+const PEERS=[...Array(81)].map((_,i)=>{const s=new Set([...UNITS[ROW(i)],...UNITS[9+COL(i)],...UNITS[18+BOX(i)]]);s.delete(i);return[...s]});
+function unitName(u){if(u<9)return`${u+1}行目`;if(u<18)return`${u-8}列目`;const b=u-18;return['上','中','下'][b/3|0]+['左','中','右'][b%3]+'ブロック'}
+const cellName=i=>`R${ROW(i)+1}C${COL(i)+1}`;
+// ---- 生成（唯一解を保証する穴あけ） ----
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+function ok(b,i,n){for(const p of PEERS[i])if(b[p]===n)return false;return true}
+function fill(b){const i=b.indexOf(0);if(i<0)return true;
+  for(const n of shuffle([1,2,3,4,5,6,7,8,9]))if(ok(b,i,n)){b[i]=n;if(fill(b))return true;b[i]=0}return false}
+// 解の個数を数える。lim 個見つかった時点で打ち切る（2 つ目が見つかったら唯一解ではない）
+function countSolutions(b,lim=2){let best=-1,bc=10;
+  for(let i=0;i<81;i++)if(!b[i]){let c=0;for(let n=1;n<=9;n++)if(ok(b,i,n))c++;if(c<bc){bc=c;best=i;if(!c)return 0}}
+  if(best<0)return 1;let t=0;
+  for(let n=1;n<=9&&t<lim;n++)if(ok(b,best,n)){b[best]=n;t+=countSolutions(b,lim-t);b[best]=0}return t}
+const TARGET={easy:38,medium:30,hard:24};
+function generate(d){const s=Array(81).fill(0);fill(s);const p=s.slice();let clues=81;
+  for(const i of shuffle([...Array(81).keys()])){if(clues<=TARGET[d])break;const v=p[i];p[i]=0;
+    if(countSolutions(p.slice())!==1)p[i]=v;else clues--}
+  return{p,s,clues}}
+// 確定値だけから求めた候補（ヒントと「候補を自動入力」用）
+function candidates(vals,i){if(vals[i])return[];const out=[];for(let n=1;n<=9;n++)if(ok(vals,i,n))out.push(n);return out}
+// 次に使える易しいテクニック（Naked Single → Hidden Single）を 1 つ探す。解と一致する手だけ採用
+function findSingle(vals,sol){
+  for(let i=0;i<81;i++)if(!vals[i]){const c=candidates(vals,i);if(c.length===1&&c[0]===sol[i])return{i,v:c[0],tech:'naked',unit:18+BOX(i)}}
+  for(let u=0;u<27;u++)for(let n=1;n<=9;n++){if(UNITS[u].some(k=>vals[k]===n))continue;
+    const spots=UNITS[u].filter(k=>!vals[k]&&ok(vals,k,n));if(spots.length===1&&sol[spots[0]]===n)return{i:spots[0],v:n,tech:'hidden',unit:u}}
+  return null}
+/*ENGINE-END*/
+
+// ---- 状態（参照: GameState） ----
+const $=s=>document.querySelector(s);
+const KEY='sudoku-memo-v2';
+let G=null;          // ゲーム状態（保存対象）
+let sel=-1, revealed=new Set(), hintHL=null, checkPresses=0, bannerTimer=0;
+function newState(p,s,diff){return{diff,puzzle:p,solution:s,values:p.slice(),kind:p.map(v=>v?'given':''),marks:p.map(()=>[]),moves:[],elapsed:0,memo:G?G.memo:false,autoClear:G?G.autoClear:true}}
+const editable=i=>i>=0&&G.kind[i]!=='given'&&G.kind[i]!=='hint';
+function save(){try{localStorage.setItem(KEY,JSON.stringify(G))}catch(e){}}
+function load(){try{const g=JSON.parse(localStorage.getItem(KEY)||'null');if(g&&g.values&&g.values.length===81&&g.marks)return g}catch(e){}return null}
+function resetPrompts(){checkPresses=0;revealed=new Set();hintHL=null}
+
+// 確定値を置く。そのマスのメモを消し、自動消去 ON なら同じ行・列・ブロックの同じ数字のメモも消す。
+// 消したメモは Move.cleared に記録して undo で必ず戻す（参照: Board.setValue / Move.clearedMarks）
+function applyValue(i,v,kind='user'){
+  const mv={i,pv:G.values[i],pk:G.kind[i],pm:G.marks[i].slice(),cleared:[]};
+  G.values[i]=v;G.kind[i]=v?kind:'';G.marks[i]=[];
+  if(v&&G.autoClear)for(const p of PEERS[i]){const k=G.marks[p].indexOf(v);if(k>=0){G.marks[p].splice(k,1);mv.cleared.push([p,v])}}
+  G.moves.push(mv);resetPrompts();
+}
+function toggleMark(i,n){
+  G.moves.push({i,pv:G.values[i],pk:G.kind[i],pm:G.marks[i].slice(),cleared:[]});
+  const m=G.marks[i],k=m.indexOf(n);if(k>=0)m.splice(k,1);else{m.push(n);m.sort()}
+  checkPresses=0;revealed=new Set();hintHL=null;
+}
+function enter(n){
+  if(!editable(sel))return;
+  if(G.memo){if(G.values[sel])return;toggleMark(sel,n);after();return}
+  const v=G.values[sel]===n?0:n; // 同じ数字をもう一度押すと取り消し
+  applyValue(sel,v);after();if(v)completionCheck();
+}
+function erase(){if(!editable(sel))return;if(!G.values[sel]&&!G.marks[sel].length)return;applyValue(sel,0);after()}
+function undo(){const mv=G.moves.pop();if(!mv)return;
+  G.values[mv.i]=mv.pv;G.kind[mv.i]=mv.pk;G.marks[mv.i]=mv.pm;
+  for(const[p,v]of mv.cleared)if(!G.marks[p].includes(v)){G.marks[p].push(v);G.marks[p].sort()}
+  resetPrompts();sel=mv.i;after();banner('1手戻しました')}
+function fillAllMarks(){ // 手書きのメモを一括で置き換えるので undo 履歴は破棄（参照: fillAllMarks）
+  for(let i=0;i<81;i++)if(!G.values[i])G.marks[i]=candidates(G.values,i);
+  G.moves=[];resetPrompts();after();banner('空きマスに候補を書き込みました')}
+function isSolved(){return G.values.every((v,i)=>v===G.solution[i])}
+function mistakes(){const m=[];G.values.forEach((v,i)=>{if(v&&v!==G.solution[i])m.push(i)});return m}
+function completionCheck(){if(G.values.includes(0))return;const m=mistakes();
+  if(!m.length)showDone();else banner(`全部埋まりましたが、${m.length}マス間違っています`)}
+// チェック: 1回目は個数だけ、2回目で位置を光らせる（参照: GameState.check）
+function check(){const m=mistakes();
+  if(!m.length){checkPresses=0;if(!G.values.includes(0))showDone();else banner('いまのところ間違いはありません');render();return}
+  checkPresses++;
+  if(checkPresses===1)banner(`間違いが${m.length}マスあります（もう一度押すと場所が出ます）`);
+  else{revealed=new Set(m);banner('間違っているマスを光らせました')}
+  render()}
+// ヒント: 1マス埋める。可能なら「どのテクニックで決まるか」を添え、対象の行/列/ブロックを光らせる。
+// 置き方は通常の入力と同じ applyValue なので、メモも消え、自動消去も効き、戻すで取り消せる
+function hint(){
+  if(isSolved()){showDone();return}
+  let h=null;
+  if(editable(sel)&&G.values[sel]!==G.solution[sel])h={i:sel,v:G.solution[sel],tech:'sel',unit:18+BOX(sel)};
+  if(!h){const vals=G.values.map((v,i)=>v===G.solution[i]?v:0);h=findSingle(vals,G.solution)}
+  if(!h){const c=[];G.values.forEach((v,i)=>{if(v!==G.solution[i])c.push(i)});const i=c[Math.random()*c.length|0];h={i,v:G.solution[i],tech:'free',unit:18+BOX(i)}}
+  sel=h.i;applyValue(h.i,h.v,'hint');hintHL={cell:h.i,unit:h.tech==='sel'||h.tech==='free'?null:h.unit};
+  const msgs={naked:`ネイキッドシングル: ${cellName(h.i)} に入る候補は ${h.v} だけです`,
+    hidden:`ヒドゥンシングル: ${unitName(h.unit)}で ${h.v} が入るのは ${cellName(h.i)} だけです`,
+    sel:`ヒント: 選択中の ${cellName(h.i)} に ${h.v} を入れました`,free:`ヒント: ${cellName(h.i)} に ${h.v} を入れました`};
+  banner(msgs[h.tech]);after();completionCheck()}
+function after(){save();render()}
+function setMemo(on){G.memo=on;save();render();banner(on?'メモモード ON：数字で候補を書き込みます':'メモモード OFF')}
+
+// ---- 描画 ----
+const cells=[];
+function buildBoard(){const b=$('#board');b.innerHTML='';const boxes=[];
+  for(let k=0;k<9;k++){const x=document.createElement('div');x.className='box';b.appendChild(x);boxes.push(x)}
+  for(let i=0;i<81;i++){const d=document.createElement('div');d.className='c';d.setAttribute('role','gridcell');d.dataset.i=i;
+    d.addEventListener('click',()=>{sel=i;render()});boxes[BOX(i)].appendChild(d);cells[i]=d}}
+function conflicts(){const s=new Set();for(const u of UNITS){const seen={};for(const c of u){const v=G.values[c];if(!v)continue;if(seen[v]!==undefined){s.add(seen[v]);s.add(c)}seen[v]=c}}
+  for(const i of [...s])if(G.kind[i]==='given')s.delete(i);return s} // 固定マスは赤くしない
+function layer(i,selVal){ // 優先順位: ヒント > 間違い > 選択 > 同じ数字 > 同じ行・列・ブロック
+  if(hintHL&&hintHL.cell===i)return'l-hcell';
+  if(hintHL&&hintHL.unit!=null&&UNITS[hintHL.unit].includes(i))return'l-hunit';
+  if(revealed.has(i))return'l-mistake';
+  if(sel<0)return'';if(sel===i)return'l-sel';
+  if(selVal&&G.values[i]===selVal)return'l-same';
+  if(PEERS[sel].includes(i))return'l-related';return''}
+function render(){
+  const conf=conflicts(),selVal=sel>=0?G.values[sel]:0;
+  for(let i=0;i<81;i++){const d=cells[i],v=G.values[i];
+    d.className='c '+(G.kind[i]||'')+(conf.has(i)?' conflict':'')+' '+layer(i,selVal);
+    if(v){d.innerHTML=`<span class="v">${v}</span>`;
+      d.setAttribute('aria-label',`${cellName(i)} ${v}${G.kind[i]==='given'?'（固定）':''}${conf.has(i)?'、重複':''}`)}
+    else{const m=G.marks[i];
+      d.innerHTML=m.length?'<div class="m">'+[1,2,3,4,5,6,7,8,9].map(n=>`<span${m.includes(n)&&n===selVal?' class="hl"':''}>${m.includes(n)?n:''}</span>`).join('')+'</div>':'';
+      d.setAttribute('aria-label',`${cellName(i)} ${m.length?'メモ '+m.join('、'):'空き'}`)}}
+  const pad=$('#pad');
+  [...pad.children].forEach((b,k)=>{const n=k+1,rem=9-G.values.filter(v=>v===n).length;
+    b.querySelector('small').textContent=rem>0?rem:'';b.disabled=rem<=0;b.setAttribute('aria-label',`${n}、残り${rem}個`)});
+  document.body.classList.toggle('memo',G.memo);
+  $('#memo').classList.toggle('on',G.memo);$('#memo').setAttribute('aria-pressed',G.memo);$('#memoState').textContent=G.memo?'ON':'OFF';
+  $('#undo').disabled=!G.moves.length;$('#autoClear').checked=G.autoClear;$('#diff').value=G.diff;
+  $('#timer').textContent=fmt(G.elapsed)}
+const fmt=t=>`${t/60|0}:${String(t%60).padStart(2,'0')}`;
+function banner(t){const b=$('#banner');b.textContent=t;b.classList.add('show');clearTimeout(bannerTimer);bannerTimer=setTimeout(()=>b.classList.remove('show'),3000)}
+const DIFF_JA={easy:'かんたん',medium:'ふつう',hard:'むずかしい'};
+function showDone(){$('#doneMsg').textContent=`${DIFF_JA[G.diff]}を ${fmt(G.elapsed)} で解きました。`;$('#done').classList.add('show');save()}
+function newGame(diff=$('#diff').value){$('#overlay').classList.add('show');
+  setTimeout(()=>{const{p,s}=generate(diff);G=newState(p,s,diff);sel=-1;resetPrompts();$('#done').classList.remove('show');$('#overlay').classList.remove('show');after()},20)}
+
+// ---- 入力 ----
+function buildPad(){const pad=$('#pad');for(let n=1;n<=9;n++){const b=document.createElement('button');b.innerHTML=`<b>${n}</b><small></small>`;b.addEventListener('click',()=>enter(n));pad.appendChild(b)}}
+$('#memo').onclick=()=>setMemo(!G.memo);$('#erase').onclick=erase;$('#undo').onclick=undo;$('#hint').onclick=hint;$('#check').onclick=check;
+$('#new').onclick=()=>newGame();$('#diff').onchange=()=>newGame();$('#fillAll').onclick=fillAllMarks;
+$('#restart').onclick=()=>{if(!confirm('この問題を最初からやり直しますか？'))return;G=newState(G.puzzle,G.solution,G.diff);sel=-1;resetPrompts();after()};
+$('#autoClear').onchange=e=>{G.autoClear=e.target.checked;save();banner(G.autoClear?'確定時に同じ行・列・ブロックのメモを自動で消します':'メモの自動消去を OFF にしました')};
+$('#again').onclick=()=>newGame(G.diff);$('#closeDone').onclick=()=>$('#done').classList.remove('show');
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='SELECT'||e.target.tagName==='INPUT')return;
+  const k=e.key;
+  if((e.metaKey||e.ctrlKey)&&k.toLowerCase()==='z'){e.preventDefault();undo();return}
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
+  const dm=/^(Digit|Numpad)([1-9])$/.exec(e.code);
+  if(dm){e.preventDefault();if(e.shiftKey&&!G.memo){G.memo=true;enter(+dm[2]);G.memo=false;after()}else enter(+dm[2]);return} // Shift+数字 = 一時的にメモ
+  if(k>='1'&&k<='9'){enter(+k);return}
+  if(k==='0'||k==='Backspace'||k==='Delete'){e.preventDefault();erase();return}
+  const lk=k.toLowerCase();
+  if(lk==='n'||lk==='m'){setMemo(!G.memo);return}
+  if(lk==='z'||lk==='u'){undo();return}
+  if(lk==='h'){hint();return} if(lk==='c'){check();return}
+  if(k==='Escape'){sel=-1;render();return}
+  const mv={ArrowUp:-9,ArrowDown:9,ArrowLeft:-1,ArrowRight:1}[k];
+  if(mv){e.preventDefault();if(sel<0)sel=40;else{const r=ROW(sel),c=COL(sel);
+    sel=k==='ArrowUp'?((r+8)%9)*9+c:k==='ArrowDown'?((r+1)%9)*9+c:k==='ArrowLeft'?r*9+(c+8)%9:r*9+(c+1)%9}render()}});
+// 時計: 表示中かつ未完成のときだけ進める
+setInterval(()=>{if(!G||document.hidden||isSolved())return;G.elapsed++;$('#timer').textContent=fmt(G.elapsed);if(G.elapsed%10===0)save()},1000);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&G)save()});
+
+buildBoard();buildPad();
+G=load();
+if(G){sel=-1;render()}else newGame('medium');
+</script></body></html>
